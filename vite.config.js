@@ -4,5 +4,6 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  base: '/library-events/',
+  // Remove base path for Vercel deployment
+  // base: '/library-events/',
 })

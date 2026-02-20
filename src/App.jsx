@@ -1,7 +1,7 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
 import { MapContainer, TileLayer, Marker, Popup, useMap, Circle } from 'react-leaflet'
 import L from 'leaflet'
-import { format, isToday, isTomorrow, isThisWeek, addDays } from 'date-fns'
+import { format, isToday, isTomorrow, isThisWeek, addDays, parseISO } from 'date-fns'
 
 // Fix for default marker icons in React-Leaflet
 delete L.Icon.Default.prototype._getIconUrl
@@ -11,20 +11,59 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 })
 
-// All available libraries (expanded list)
+// Libraries with scraping support
 const ALL_LIBRARIES = [
-  { id: 1, name: 'San Francisco Main Library', address: '100 Larkin St, San Francisco, CA 94102', lat: 37.7793, lng: -122.4157, color: '#dc2626', phone: '(415) 557-4400' },
-  { id: 2, name: 'Oakland Public Library', address: '125 14th St, Oakland, CA 94612', lat: 37.8044, lng: -122.2712, color: '#2563eb', phone: '(510) 238-3134' },
-  { id: 3, name: 'Berkeley Public Library', address: '2090 Kittredge St, Berkeley, CA 94704', lat: 37.8693, lng: -122.2689, color: '#16a34a', phone: '(510) 981-6100' },
-  { id: 4, name: 'Palo Alto City Library', address: '1213 Newell Rd, Palo Alto, CA 94303', lat: 37.4419, lng: -122.1430, color: '#9333ea', phone: '(650) 329-2436' },
-  { id: 5, name: 'San Jose MLK Jr. Library', address: '150 E San Fernando St, San Jose, CA 95112', lat: 37.3355, lng: -121.8854, color: '#ea580c', phone: '(408) 808-2000' },
-  { id: 6, name: 'Fremont Main Library', address: '2400 Stevenson Blvd, Fremont, CA 94538', lat: 37.5530, lng: -122.0058, color: '#0891b2', phone: '(510) 745-1400' },
-  { id: 7, name: 'Sunnyvale Public Library', address: '665 W Olive Ave, Sunnyvale, CA 94086', lat: 37.3772, lng: -122.0357, color: '#be185d', phone: '(408) 730-7300' },
-  { id: 8, name: 'Mountain View Library', address: '585 Franklin St, Mountain View, CA 94041', lat: 37.3908, lng: -122.0795, color: '#4f46e5', phone: '(650) 903-6337' },
-  { id: 9, name: 'Redwood City Library', address: '1044 Middlefield Rd, Redwood City, CA 94063', lat: 37.4847, lng: -122.2281, color: '#059669', phone: '(650) 780-7018' },
-  { id: 10, name: 'Daly City Public Library', address: '40 Wembley Dr, Daly City, CA 94015', lat: 37.6879, lng: -122.4702, color: '#7c3aed', phone: '(650) 991-8023' },
-  { id: 11, name: 'Hayward Public Library', address: '888 C St, Hayward, CA 94541', lat: 37.6688, lng: -122.0808, color: '#db2777', phone: '(510) 881-7300' },
-  { id: 12, name: 'Santa Clara City Library', address: '2635 Homestead Rd, Santa Clara, CA 95051', lat: 37.3382, lng: -121.9863, color: '#0d9488', phone: '(408) 615-2900' },
+  { 
+    id: 1, 
+    name: 'Palo Alto City Library', 
+    address: '1213 Newell Rd, Palo Alto, CA 94303', 
+    lat: 37.4419, 
+    lng: -122.1430, 
+    color: '#9333ea', 
+    phone: '(650) 329-2436',
+    scraperId: 'palo-alto',
+    hasRealEvents: true
+  },
+  { 
+    id: 2, 
+    name: 'San Jose MLK Jr. Library', 
+    address: '150 E San Fernando St, San Jose, CA 95112', 
+    lat: 37.3355, 
+    lng: -121.8854, 
+    color: '#ea580c', 
+    phone: '(408) 808-2000',
+    scraperId: 'san-jose',
+    hasRealEvents: true
+  },
+  { 
+    id: 3, 
+    name: 'Santa Clara City Library', 
+    address: '2635 Homestead Rd, Santa Clara, CA 95051', 
+    lat: 37.3382, 
+    lng: -121.9863, 
+    color: '#0d9488', 
+    phone: '(408) 615-2900',
+    scraperId: 'santa-clara',
+    hasRealEvents: true
+  },
+  { 
+    id: 4, 
+    name: 'Mountain View Library', 
+    address: '585 Franklin St, Mountain View, CA 94041', 
+    lat: 37.3908, 
+    lng: -122.0795, 
+    color: '#4f46e5', 
+    phone: '(650) 903-6337',
+    scraperId: 'mountain-view',
+    hasRealEvents: false  // LibCal API not yet integrated
+  },
+  // Libraries without scraping support (show as coming soon)
+  { id: 5, name: 'San Francisco Main Library', address: '100 Larkin St, San Francisco, CA 94102', lat: 37.7793, lng: -122.4157, color: '#dc2626', phone: '(415) 557-4400', hasRealEvents: false },
+  { id: 6, name: 'Oakland Public Library', address: '125 14th St, Oakland, CA 94612', lat: 37.8044, lng: -122.2712, color: '#2563eb', phone: '(510) 238-3134', hasRealEvents: false },
+  { id: 7, name: 'Berkeley Public Library', address: '2090 Kittredge St, Berkeley, CA 94704', lat: 37.8693, lng: -122.2689, color: '#16a34a', phone: '(510) 981-6100', hasRealEvents: false },
+  { id: 8, name: 'Fremont Main Library', address: '2400 Stevenson Blvd, Fremont, CA 94538', lat: 37.5530, lng: -122.0058, color: '#0891b2', phone: '(510) 745-1400', hasRealEvents: false },
+  { id: 9, name: 'Sunnyvale Public Library', address: '665 W Olive Ave, Sunnyvale, CA 94086', lat: 37.3772, lng: -122.0357, color: '#be185d', phone: '(408) 730-7300', hasRealEvents: false },
+  { id: 10, name: 'Redwood City Library', address: '1044 Middlefield Rd, Redwood City, CA 94063', lat: 37.4847, lng: -122.2281, color: '#059669', phone: '(650) 780-7018', hasRealEvents: false },
 ]
 
 const EVENT_TYPES = {
@@ -38,6 +77,42 @@ const EVENT_TYPES = {
   'Music': { icon: '🎵', color: 'bg-teal-100 text-teal-800' },
 }
 
+// API endpoint - in development use local, in production use relative
+const API_BASE = import.meta.env.DEV ? 'http://localhost:3001' : '';
+
+// Simple cache for scraped events (5 minutes)
+const eventCache = new Map();
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+async function fetchLibraryEvents(scraperId) {
+  const cacheKey = scraperId;
+  const cached = eventCache.get(cacheKey);
+  
+  if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
+    return cached.data;
+  }
+  
+  try {
+    const response = await fetch(`${API_BASE}/api/events?library=${scraperId}`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // Cache the result
+    eventCache.set(cacheKey, {
+      data: data,
+      timestamp: Date.now()
+    });
+    
+    return data;
+  } catch (error) {
+    console.error(`Error fetching events for ${scraperId}:`, error);
+    throw error;
+  }
+}
+
 // Haversine formula to calculate distance between two points
 function getDistance(lat1, lon1, lat2, lon2) {
   const R = 3959 // Earth's radius in miles
@@ -49,65 +124,6 @@ function getDistance(lat1, lon1, lat2, lon2) {
     Math.sin(dLon/2) * Math.sin(dLon/2)
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
   return R * c
-}
-
-// Generate events for libraries
-const generateEvents = (libraries) => {
-  const events = []
-  const eventTemplates = [
-    { title: 'Mystery Book Club', type: 'Book Club', duration: 90, description: 'Discussing "The Silent Patient" - bring your theories!' },
-    { title: 'Toddler Story Time', type: 'Story Time', duration: 45, description: 'Interactive stories and songs for ages 2-4. Parents welcome!' },
-    { title: 'Resume Writing Workshop', type: 'Workshop', duration: 120, description: 'Get help polishing your resume with career experts. Bring a laptop if you have one.' },
-    { title: 'Local Author Reading', type: 'Author Talk', duration: 60, description: 'Meet local authors and hear excerpts from their latest works. Books available for purchase and signing.' },
-    { title: 'Classic Film Friday', type: 'Movie Night', duration: 150, description: 'Screening of Casablanca with popcorn provided. Doors open 15 min early.' },
-    { title: 'Senior Tech Help', type: 'Tech Help', duration: 60, description: 'One-on-one help with smartphones, tablets, and computers. Bring your device!' },
-    { title: 'Kids Craft Corner', type: 'Art & Crafts', duration: 60, description: 'Make your own bookmarks and book covers! All materials provided. Ages 5-12.' },
-    { title: 'Sci-Fi Book Club', type: 'Book Club', duration: 90, description: 'Exploring "Project Hail Mary" by Andy Weir. New members welcome!' },
-    { title: 'Preschool Music Time', type: 'Music', duration: 30, description: 'Sing-along and rhythm instruments for little ones. Ages 2-5 with caregiver.' },
-    { title: 'Digital Photography Basics', type: 'Workshop', duration: 90, description: 'Learn to take better photos with any camera or smartphone.' },
-    { title: 'Teen Gaming Night', type: 'Workshop', duration: 120, description: 'Board games, card games, and video games for teens. Snacks provided!' },
-    { title: 'Poetry Open Mic', type: 'Author Talk', duration: 75, description: 'Open mic poetry night - all skill levels welcome. Sign up starts at 6:30pm.' },
-  ]
-  
-  let id = 1
-  const today = new Date()
-  
-  libraries.forEach(library => {
-    const numEvents = 6 + Math.floor(Math.random() * 5)
-    const usedDays = new Set()
-    
-    for (let i = 0; i < numEvents; i++) {
-      const template = eventTemplates[Math.floor(Math.random() * eventTemplates.length)]
-      let dayOffset
-      do {
-        dayOffset = Math.floor(Math.random() * 14)
-      } while (usedDays.has(dayOffset) && usedDays.size < 14)
-      usedDays.add(dayOffset)
-      
-      const eventDate = addDays(today, dayOffset)
-      const hour = 10 + Math.floor(Math.random() * 8)
-      eventDate.setHours(hour, Math.random() > 0.5 ? 0 : 30, 0, 0)
-      
-      const totalSpots = 10 + Math.floor(Math.random() * 40)
-      const registered = Math.floor(Math.random() * (totalSpots - 2))
-      
-      events.push({
-        id: id++,
-        ...template,
-        libraryId: library.id,
-        libraryName: library.name,
-        libraryAddress: library.address,
-        libraryPhone: library.phone,
-        libraryColor: library.color,
-        distance: library.distance,
-        date: eventDate,
-        spots: totalSpots,
-        registered: registered,
-      })
-    }
-  })
-  
-  return events.sort((a, b) => a.date - b.date)
 }
 
 const FILTERS = ['All', 'Today', 'Tomorrow', 'This Week']
@@ -162,7 +178,23 @@ function Toast({ message, type, onClose }) {
   )
 }
 
-function LocationPrompt({ onAllow, onManual, onError }) {
+// Loading skeleton for events
+function EventSkeleton() {
+  return (
+    <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100 animate-pulse">
+      <div className="flex items-start gap-3">
+        <div className="w-12 h-12 bg-gray-200 rounded-lg" />
+        <div className="flex-1">
+          <div className="h-5 bg-gray-200 rounded w-3/4 mb-2" />
+          <div className="h-4 bg-gray-200 rounded w-1/2 mb-2" />
+          <div className="h-3 bg-gray-200 rounded w-2/3" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LocationPrompt({ onAllow, onManual }) {
   const [manualAddress, setManualAddress] = useState('')
   const [isSearching, setIsSearching] = useState(false)
   const [isLocating, setIsLocating] = useState(false)
@@ -231,7 +263,7 @@ function LocationPrompt({ onAllow, onManual, onError }) {
         <div className="text-6xl mb-6">📍</div>
         <h1 className="text-2xl font-bold text-gray-900 mb-2">Find Library Events Near You</h1>
         <p className="text-gray-500 mb-8">
-          Share your location to discover events at nearby libraries
+          Share your location to discover real events at nearby Bay Area libraries
         </p>
         
         {error && (
@@ -301,13 +333,20 @@ function LocationPrompt({ onAllow, onManual, onError }) {
 function App() {
   const [userLocation, setUserLocation] = useState(null)
   const [showLocationPrompt, setShowLocationPrompt] = useState(true)
-  const [radius, setRadius] = useState(15) // miles
+  const [radius, setRadius] = useState(15)
   const [selectedLibrary, setSelectedLibrary] = useState(null)
   const [selectedEvent, setSelectedEvent] = useState(null)
   const [timeFilter, setTimeFilter] = useState('All')
   const [typeFilter, setTypeFilter] = useState('All')
   const [view, setView] = useState('list')
   const [toast, setToast] = useState(null)
+  
+  // Scraping state
+  const [events, setEvents] = useState([])
+  const [loadingLibraries, setLoadingLibraries] = useState(new Set())
+  const [loadedLibraries, setLoadedLibraries] = useState(new Set())
+  const [libraryErrors, setLibraryErrors] = useState(new Map())
+  const fetchedRef = useRef(new Set())
 
   const showToast = useCallback((message, type = 'success') => {
     setToast({ message, type })
@@ -326,11 +365,63 @@ function App() {
       .sort((a, b) => a.distance - b.distance)
   }, [userLocation, radius])
 
-  // Generate events for nearby libraries
-  const events = useMemo(() => {
-    if (nearbyLibraries.length === 0) return []
-    return generateEvents(nearbyLibraries)
-  }, [nearbyLibraries])
+  // Fetch events for nearby libraries that support scraping
+  useEffect(() => {
+    if (nearbyLibraries.length === 0) return
+    
+    const librariesToFetch = nearbyLibraries.filter(
+      lib => lib.hasRealEvents && 
+             lib.scraperId && 
+             !fetchedRef.current.has(lib.scraperId) &&
+             !loadingLibraries.has(lib.scraperId)
+    )
+    
+    if (librariesToFetch.length === 0) return
+    
+    librariesToFetch.forEach(lib => {
+      fetchedRef.current.add(lib.scraperId)
+      setLoadingLibraries(prev => new Set([...prev, lib.scraperId]))
+      
+      fetchLibraryEvents(lib.scraperId)
+        .then(data => {
+          if (data.events && data.events.length > 0) {
+            setEvents(prev => {
+              // Remove old events from this library and add new ones
+              const filtered = prev.filter(e => e.libraryId !== lib.scraperId)
+              const newEvents = data.events.map(event => ({
+                ...event,
+                id: `${lib.scraperId}-${event.id}`,
+                libraryId: lib.id,
+                libraryName: lib.name,
+                libraryAddress: lib.address,
+                libraryPhone: lib.phone,
+                libraryColor: lib.color,
+                distance: lib.distance,
+                date: parseISO(event.date),
+                spots: 20 + Math.floor(Math.random() * 30),
+                registered: Math.floor(Math.random() * 15),
+              }))
+              return [...filtered, ...newEvents].sort((a, b) => a.date - b.date)
+            })
+            setLoadedLibraries(prev => new Set([...prev, lib.scraperId]))
+          }
+          setLoadingLibraries(prev => {
+            const next = new Set(prev)
+            next.delete(lib.scraperId)
+            return next
+          })
+        })
+        .catch(error => {
+          console.error(`Failed to fetch ${lib.name}:`, error)
+          setLibraryErrors(prev => new Map(prev).set(lib.scraperId, error.message))
+          setLoadingLibraries(prev => {
+            const next = new Set(prev)
+            next.delete(lib.scraperId)
+            return next
+          })
+        })
+    })
+  }, [nearbyLibraries, loadingLibraries])
 
   const handleLocationSuccess = (location) => {
     setUserLocation(location)
@@ -338,11 +429,14 @@ function App() {
   }
 
   const handleRegister = useCallback((event) => {
-    // Open the library's event registration page via search
-    const searchQuery = `${event.libraryName} events registration ${event.title}`
-    const url = `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`
-    window.open(url, '_blank')
-    showToast('Opening library registration page...', 'info')
+    if (event.url) {
+      window.open(event.url, '_blank')
+    } else {
+      const searchQuery = `${event.libraryName} events registration ${event.title}`
+      const url = `https://www.google.com/search?q=${encodeURIComponent(searchQuery)}`
+      window.open(url, '_blank')
+    }
+    showToast('Opening event page...', 'info')
   }, [showToast])
 
   const handleCallLibrary = useCallback((event) => {
@@ -353,7 +447,7 @@ function App() {
     const shareData = {
       title: event.title,
       text: `Check out "${event.title}" at ${event.libraryName} on ${format(event.date, 'EEEE, MMMM d')} at ${format(event.date, 'h:mm a')}!`,
-      url: window.location.href
+      url: event.url || window.location.href
     }
 
     try {
@@ -361,14 +455,12 @@ function App() {
         await navigator.share(shareData)
         showToast('Shared successfully!', 'success')
       } else {
-        // Fallback: copy to clipboard
         const text = `${shareData.title}\n${shareData.text}\n${shareData.url}`
         await navigator.clipboard.writeText(text)
         showToast('Event details copied to clipboard!', 'success')
       }
     } catch (err) {
       if (err.name !== 'AbortError') {
-        // Try clipboard as last resort
         try {
           const text = `${event.title} at ${event.libraryName} - ${format(event.date, 'MMM d')} at ${format(event.date, 'h:mm a')}`
           await navigator.clipboard.writeText(text)
@@ -414,13 +506,14 @@ function App() {
     return format(date, 'EEEE, MMM d')
   }
 
+  const isLoading = loadingLibraries.size > 0
+
   if (showLocationPrompt) {
     return <LocationPrompt onAllow={handleLocationSuccess} onManual={handleLocationSuccess} />
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-indigo-50">
-      {/* Toast */}
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
       
       {/* Header */}
@@ -430,13 +523,16 @@ function App() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
                 📚 Library Events
+                <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-medium">
+                  LIVE
+                </span>
               </h1>
               <p className="text-sm text-gray-500">
                 {nearbyLibraries.length} libraries within {radius} miles
+                {isLoading && ' · Loading events...'}
               </p>
             </div>
             <div className="flex items-center gap-4 flex-wrap">
-              {/* Radius Selector */}
               <div className="flex items-center gap-2">
                 <span className="text-sm text-gray-500">Radius:</span>
                 <select
@@ -450,7 +546,6 @@ function App() {
                 </select>
               </div>
               
-              {/* View Toggle */}
               <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
                 <button
                   onClick={() => setView('list')}
@@ -470,7 +565,6 @@ function App() {
                 </button>
               </div>
               
-              {/* Change Location */}
               <button
                 onClick={() => setShowLocationPrompt(true)}
                 className="px-3 py-2 text-sm text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg font-medium transition-colors"
@@ -523,12 +617,10 @@ function App() {
                       zoom={selectedLibrary ? 14 : 11}
                     />
                     
-                    {/* User Location */}
                     <Marker position={[userLocation.lat, userLocation.lng]} icon={createUserIcon()}>
                       <Popup>📍 Your Location</Popup>
                     </Marker>
                     
-                    {/* Radius Circle */}
                     <Circle 
                       center={[userLocation.lat, userLocation.lng]}
                       radius={radius * 1609.34}
@@ -540,7 +632,6 @@ function App() {
                       }}
                     />
                     
-                    {/* Library Markers */}
                     {nearbyLibraries.map(library => (
                       <Marker
                         key={library.id}
@@ -556,9 +647,14 @@ function App() {
                           <div className="text-center min-w-[150px]">
                             <strong className="block mb-1">{library.name}</strong>
                             <span className="text-gray-500 text-sm block mb-2">{library.distance.toFixed(1)} mi away</span>
+                            {library.hasRealEvents && (
+                              <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
+                                Live Events
+                              </span>
+                            )}
                             <button 
                               onClick={() => handleGetDirections(library)}
-                              className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                              className="text-xs text-blue-600 hover:text-blue-700 font-medium block mt-2"
                             >
                               Get Directions →
                             </button>
@@ -575,6 +671,9 @@ function App() {
                   <div className="space-y-2">
                     {nearbyLibraries.map(library => {
                       const eventCount = events.filter(e => e.libraryId === library.id).length
+                      const isLoadingLib = loadingLibraries.has(library.scraperId)
+                      const hasError = libraryErrors.has(library.scraperId)
+                      
                       return (
                         <button
                           key={library.id}
@@ -595,8 +694,19 @@ function App() {
                             <div className="font-medium text-gray-900 truncate text-sm">
                               {library.name}
                             </div>
-                            <div className="text-xs text-gray-500">
-                              {library.distance.toFixed(1)} mi · {eventCount} events
+                            <div className="text-xs text-gray-500 flex items-center gap-2">
+                              {library.distance.toFixed(1)} mi
+                              {library.hasRealEvents ? (
+                                isLoadingLib ? (
+                                  <span className="text-blue-600">· Loading...</span>
+                                ) : hasError ? (
+                                  <span className="text-red-500">· Error</span>
+                                ) : (
+                                  <span className="text-green-600">· {eventCount} events</span>
+                                )
+                              ) : (
+                                <span className="text-gray-400">· Coming soon</span>
+                              )}
                             </div>
                           </div>
                         </button>
@@ -618,53 +728,68 @@ function App() {
             {/* Events Section */}
             <div className="lg:col-span-2">
               {/* Filters */}
-              {view !== 'myevents' && (
-                <div className="bg-white rounded-2xl shadow-sm p-4 mb-6">
-                  <div className="flex flex-wrap gap-4">
-                    <div className="flex gap-2 flex-wrap">
-                      {FILTERS.map(f => (
-                        <button
-                          key={f}
-                          onClick={() => setTimeFilter(f)}
-                          className={`px-4 py-2 text-sm font-medium rounded-full transition-all ${
-                            timeFilter === f
-                              ? 'bg-blue-600 text-white shadow-md'
-                              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                          }`}
-                        >
-                          {f}
-                        </button>
-                      ))}
-                    </div>
-                    
-                    <select
-                      value={typeFilter}
-                      onChange={(e) => setTypeFilter(e.target.value)}
-                      className="px-4 py-2 text-sm font-medium rounded-full bg-gray-100 text-gray-600 border-0 focus:ring-2 focus:ring-blue-500 cursor-pointer"
-                    >
-                      <option value="All">All Types</option>
-                      {Object.keys(EVENT_TYPES).map(type => (
-                        <option key={type} value={type}>{EVENT_TYPES[type].icon} {type}</option>
-                      ))}
-                    </select>
+              <div className="bg-white rounded-2xl shadow-sm p-4 mb-6">
+                <div className="flex flex-wrap gap-4">
+                  <div className="flex gap-2 flex-wrap">
+                    {FILTERS.map(f => (
+                      <button
+                        key={f}
+                        onClick={() => setTimeFilter(f)}
+                        className={`px-4 py-2 text-sm font-medium rounded-full transition-all ${
+                          timeFilter === f
+                            ? 'bg-blue-600 text-white shadow-md'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        {f}
+                      </button>
+                    ))}
                   </div>
+                  
+                  <select
+                    value={typeFilter}
+                    onChange={(e) => setTypeFilter(e.target.value)}
+                    className="px-4 py-2 text-sm font-medium rounded-full bg-gray-100 text-gray-600 border-0 focus:ring-2 focus:ring-blue-500 cursor-pointer"
+                  >
+                    <option value="All">All Types</option>
+                    {Object.keys(EVENT_TYPES).map(type => (
+                      <option key={type} value={type}>{EVENT_TYPES[type].icon} {type}</option>
+                    ))}
+                  </select>
                 </div>
-              )}
+              </div>
 
-              {view !== 'myevents' && (
-                <div className="mb-4 text-sm text-gray-500">
-                  Showing {filteredEvents.length} events
-                  {selectedLibrary && ` at ${selectedLibrary.name}`}
-                </div>
-              )}
+              <div className="mb-4 text-sm text-gray-500">
+                {isLoading ? (
+                  <span className="flex items-center gap-2">
+                    <div className="w-4 h-4 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+                    Loading events from {loadingLibraries.size} library(ies)...
+                  </span>
+                ) : (
+                  <>
+                    Showing {filteredEvents.length} real events
+                    {selectedLibrary && ` at ${selectedLibrary.name}`}
+                  </>
+                )}
+              </div>
 
               {/* Event List */}
               {view === 'list' && (
                 <div className="space-y-6">
-                  {groupedByDate.length === 0 ? (
+                  {isLoading && events.length === 0 ? (
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      {[...Array(6)].map((_, i) => (
+                        <EventSkeleton key={i} />
+                      ))}
+                    </div>
+                  ) : groupedByDate.length === 0 ? (
                     <div className="bg-white rounded-2xl p-12 text-center">
                       <div className="text-4xl mb-3">🔍</div>
-                      <p className="text-gray-500">No events found. Try adjusting your filters.</p>
+                      <p className="text-gray-500">
+                        {loadedLibraries.size === 0 
+                          ? 'Loading events from library websites...' 
+                          : 'No events found. Try adjusting your filters.'}
+                      </p>
                     </div>
                   ) : (
                     groupedByDate.map(group => (
@@ -676,33 +801,30 @@ function App() {
                           {group.events.map(event => (
                             <div
                               key={event.id}
-                              className="event-card bg-white rounded-xl p-4 shadow-sm border border-gray-100 hover:shadow-lg cursor-pointer"
+                              className="event-card bg-white rounded-xl p-4 shadow-sm border border-gray-100 hover:shadow-lg cursor-pointer transition-all"
                               onClick={() => setSelectedEvent(event)}
                             >
                               <div className="flex items-start gap-3">
-                                <div className="text-3xl">{EVENT_TYPES[event.type]?.icon}</div>
+                                <div className="text-3xl">{EVENT_TYPES[event.type]?.icon || '📅'}</div>
                                 <div className="flex-1 min-w-0">
-                                  <h4 className="font-semibold text-gray-900 truncate pr-16">{event.title}</h4>
+                                  <h4 className="font-semibold text-gray-900 truncate pr-4">{event.title}</h4>
                                   <div className="flex items-center gap-2 mt-1">
-                                    <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${EVENT_TYPES[event.type]?.color}`}>
+                                    <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${EVENT_TYPES[event.type]?.color || 'bg-gray-100 text-gray-800'}`}>
                                       {event.type}
                                     </span>
                                     <span className="text-xs text-gray-400">{format(event.date, 'h:mm a')}</span>
                                   </div>
                                   <div className="flex items-center gap-1 mt-2 text-xs text-gray-500">
                                     <div className="w-2 h-2 rounded-full" style={{ backgroundColor: event.libraryColor }} />
-                                    {event.libraryName}
+                                    <span className="truncate">{event.libraryName}</span>
                                     <span className="text-gray-300 mx-1">·</span>
                                     {event.distance.toFixed(1)} mi
                                   </div>
-                                  <div className="mt-2 flex items-center justify-between">
-                                    <span className="text-xs text-gray-400">{event.duration} min</span>
-                                    <span className={`text-xs font-medium ${
-                                      event.spots - event.registered < 5 ? 'text-red-500' : 'text-green-600'
-                                    }`}>
-                                      {event.spots - event.registered} spots left
-                                    </span>
-                                  </div>
+                                  {event.location && event.location !== event.libraryName && (
+                                    <div className="text-xs text-gray-400 mt-1 truncate">
+                                      📍 {event.location}
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -776,7 +898,7 @@ function App() {
           >
             <div className="p-6">
               <div className="flex items-start justify-between mb-4">
-                <div className="text-4xl">{EVENT_TYPES[selectedEvent.type]?.icon}</div>
+                <div className="text-4xl">{EVENT_TYPES[selectedEvent.type]?.icon || '📅'}</div>
                 <button 
                   onClick={() => setSelectedEvent(null)} 
                   className="text-gray-400 hover:text-gray-600 text-2xl leading-none w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100"
@@ -787,7 +909,7 @@ function App() {
               
               <h2 className="text-2xl font-bold text-gray-900 mb-2">{selectedEvent.title}</h2>
               
-              <span className={`inline-block px-3 py-1 text-sm font-medium rounded-full ${EVENT_TYPES[selectedEvent.type]?.color}`}>
+              <span className={`inline-block px-3 py-1 text-sm font-medium rounded-full ${EVENT_TYPES[selectedEvent.type]?.color || 'bg-gray-100 text-gray-800'}`}>
                 {selectedEvent.type}
               </span>
               
@@ -804,6 +926,9 @@ function App() {
                   <span className="text-xl">📍</span>
                   <div className="flex-1">
                     <div className="font-medium">{selectedEvent.libraryName}</div>
+                    {selectedEvent.location && selectedEvent.location !== selectedEvent.libraryName && (
+                      <div className="text-sm text-gray-500">{selectedEvent.location}</div>
+                    )}
                     <div className="text-sm text-gray-400">{selectedEvent.libraryAddress}</div>
                     <div className="text-sm text-gray-400">{selectedEvent.distance.toFixed(1)} miles away</div>
                   </div>
@@ -816,50 +941,41 @@ function App() {
                     <div className="text-sm text-gray-400">Library phone</div>
                   </div>
                 </div>
-                
-                <div className="flex items-center gap-3 text-gray-600">
-                  <span className="text-xl">👥</span>
-                  <div>
-                    <div className="font-medium">
-                      {selectedEvent.spots - selectedEvent.registered} spots available
-                    </div>
-                    <div className="text-sm text-gray-400">{selectedEvent.registered} people registered</div>
-                    {selectedEvent.spots - selectedEvent.registered < 5 && (
-                      <div className="text-sm text-red-500 font-medium">Almost full!</div>
-                    )}
-                  </div>
-                </div>
               </div>
               
               <div className="mt-6 p-4 bg-gray-50 rounded-xl">
                 <h4 className="font-medium text-gray-900 mb-2">About this event</h4>
                 <p className="text-gray-600 leading-relaxed">{selectedEvent.description}</p>
+                {selectedEvent.categories && selectedEvent.categories.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1">
+                    {selectedEvent.categories.map((cat, i) => (
+                      <span key={i} className="text-xs bg-gray-200 text-gray-600 px-2 py-0.5 rounded">
+                        {cat}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
               
-              <div className="mt-6 p-4 bg-blue-50 rounded-xl">
-                <p className="text-sm text-blue-800 mb-3">
-                  📋 To register, contact the library directly or visit their events page.
-                </p>
-                <div className="flex gap-2 flex-wrap">
-                  <button 
-                    onClick={() => handleRegister(selectedEvent)}
-                    className="flex-1 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 flex items-center justify-center gap-2"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                    </svg>
-                    Register Online
-                  </button>
-                  <button 
-                    onClick={() => handleCallLibrary(selectedEvent)}
-                    className="py-3 px-6 bg-green-600 text-white font-semibold rounded-xl hover:bg-green-700 transition-colors flex items-center gap-2"
-                  >
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-                    </svg>
-                    Call
-                  </button>
-                </div>
+              <div className="mt-6 flex gap-2 flex-wrap">
+                <button 
+                  onClick={() => handleRegister(selectedEvent)}
+                  className="flex-1 py-3 bg-blue-600 text-white font-semibold rounded-xl hover:bg-blue-700 transition-colors shadow-lg shadow-blue-200 flex items-center justify-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                  </svg>
+                  View Event
+                </button>
+                <button 
+                  onClick={() => handleCallLibrary(selectedEvent)}
+                  className="py-3 px-6 bg-green-600 text-white font-semibold rounded-xl hover:bg-green-700 transition-colors flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                  </svg>
+                  Call
+                </button>
               </div>
               
               <div className="mt-4 flex gap-3">
@@ -889,7 +1005,7 @@ function App() {
       )}
 
       <footer className="text-center py-8 text-sm text-gray-400">
-        Built with 🐣 by Tiny
+        Built with 🐣 by Tiny · Events scraped live from library websites
       </footer>
       
       <style>{`
